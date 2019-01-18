@@ -34,9 +34,11 @@ pub mod handler;
 
 use messages::network::PingResponse;
 use messages::processor::TpProcessRequest;
+use messages::processor::TpRegisterRequest_TpProcessRequestHeaderStyle;
 use messages::processor::TpProcessResponse;
 use messages::processor::TpProcessResponse_Status;
 use messages::processor::TpRegisterRequest;
+use messages::processor::TpRegisterResponse;
 use messages::processor::TpUnregisterRequest;
 use messages::validator::Message_MessageType;
 use messaging::stream::MessageConnection;
@@ -52,6 +54,11 @@ use self::handler::ApplyError;
 use self::handler::TransactionContext;
 use self::handler::TransactionHandler;
 
+// This is the version used by SDK to match if validator supports feature it requested during
+// registration. It should only be incremented when there are changes in TpRegisterRequest.
+// Remember to sync this information in validator if changed.
+const SDK_PROTOCOL_VERSION: u32 = 1;
+
 /// Generates a random correlation id for use in Message
 fn generate_correlation_id() -> String {
     const LENGTH: usize = 16;
@@ -62,6 +69,7 @@ pub struct TransactionProcessor<'a> {
     endpoint: String,
     conn: ZmqMessageConnection,
     handlers: Vec<&'a TransactionHandler>,
+    header_style: TpRegisterRequest_TpProcessRequestHeaderStyle,
 }
 
 impl<'a> TransactionProcessor<'a> {
@@ -73,6 +81,7 @@ impl<'a> TransactionProcessor<'a> {
             endpoint: String::from(endpoint),
             conn: ZmqMessageConnection::new(endpoint),
             handlers: Vec::new(),
+            header_style: TpRegisterRequest_TpProcessRequestHeaderStyle::STYLE_UNSET,
         }
     }
 
@@ -85,6 +94,15 @@ impl<'a> TransactionProcessor<'a> {
         self.handlers.push(handler);
     }
 
+    /// Set header style flag to send TpProcessRequest
+    ///
+    /// # Arguments
+    ///
+    /// * style - header style required in TpProcessRequest
+    pub fn set_header_style(&mut self, style: TpRegisterRequest_TpProcessRequestHeaderStyle) {
+        self.header_style = style;
+    }
+
     fn register(&mut self, sender: &ZmqMessageSender, unregister: &Arc<AtomicBool>) -> bool {
         for handler in &self.handlers {
             for version in handler.family_versions() {
@@ -92,6 +110,7 @@ impl<'a> TransactionProcessor<'a> {
                 request.set_family(handler.family_name().clone());
                 request.set_version(version.clone());
                 request.set_namespaces(RepeatedField::from_vec(handler.namespaces().clone()));
+                request.set_request_header_style(self.header_style.clone());
                 info!(
                     "sending TpRegisterRequest: {} {}",
                     &handler.family_name(),
@@ -123,7 +142,27 @@ impl<'a> TransactionProcessor<'a> {
                 // Absorb the TpRegisterResponse message
                 loop {
                     match future.get_timeout(Duration::from_millis(10000)) {
-                        Ok(_) => break,
+                        Ok(response) => {
+                            let resp: TpRegisterResponse =
+                                match protobuf::parse_from_bytes(&response.get_content()) {
+                                    Ok(read_response) => read_response,
+                                    Err(_) => {
+                                        unregister.store(true, Ordering::SeqCst);
+                                        error!("Error while unpacking TpRegisterResponse");
+                                        return false;
+                                    }
+                                };
+                            if resp.get_protocol_version() == 0
+                                || resp.get_protocol_version() > SDK_PROTOCOL_VERSION
+                            {
+                                unregister.store(true, Ordering::SeqCst);
+                                error!("Validator version does not have capability to serve \
+                                header in requested style. Reverting registration request with \
+                                validator.");
+                                return false;
+                            }
+                            break;
+                        }
                         Err(_) => {
                             if unregister.load(Ordering::SeqCst) {
                                 return false;
@@ -199,7 +238,7 @@ impl<'a> TransactionProcessor<'a> {
             }
 
             // if registration is not succesful, retry
-            if !self.register(&sender, &unregister.clone()) {
+            if !self.register(&sender, &unregister) {
                 continue;
             }
 

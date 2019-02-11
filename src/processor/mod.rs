@@ -112,6 +112,7 @@ impl<'a> TransactionProcessor<'a> {
                 request.set_version(version.clone());
                 request.set_namespaces(RepeatedField::from_vec(handler.namespaces().clone()));
                 request.set_request_header_style(self.header_style.clone());
+                request.set_protocol_version(SDK_PROTOCOL_VERSION);
                 info!(
                     "sending TpRegisterRequest: {} {}",
                     &handler.family_name(),

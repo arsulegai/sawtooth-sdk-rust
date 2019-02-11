@@ -34,11 +34,12 @@ pub mod handler;
 
 use messages::network::PingResponse;
 use messages::processor::TpProcessRequest;
-use messages::processor::TpRegisterRequest_TpProcessRequestHeaderStyle;
 use messages::processor::TpProcessResponse;
 use messages::processor::TpProcessResponse_Status;
 use messages::processor::TpRegisterRequest;
+use messages::processor::TpRegisterRequest_TpProcessRequestHeaderStyle;
 use messages::processor::TpRegisterResponse;
+use messages::processor::TpRegisterResponse_Status;
 use messages::processor::TpUnregisterRequest;
 use messages::validator::Message_MessageType;
 use messaging::stream::MessageConnection;
@@ -152,13 +153,18 @@ impl<'a> TransactionProcessor<'a> {
                                         return false;
                                     }
                                 };
-                            if resp.get_protocol_version() == 0
-                                || resp.get_protocol_version() > SDK_PROTOCOL_VERSION
-                            {
+                            // Validator gives backward compatible support, do not proceed if SDK
+                            // is expecting a feature which validator cannot provide
+                            if resp.get_protocol_version() < SDK_PROTOCOL_VERSION {
                                 unregister.store(true, Ordering::SeqCst);
                                 error!("Validator version does not have capability to serve \
                                 header in requested style. Reverting registration request with \
                                 validator.");
+                                return false;
+                            }
+                            if resp.get_status() == TpRegisterResponse_Status::ERROR {
+                                unregister.store(true, Ordering::SeqCst);
+                                error!("Validator registration failed with status");
                                 return false;
                             }
                             break;

@@ -54,6 +54,9 @@ message TpRegisterRequest {
     // Setting it to RAW, validator would fill in serialized transaction header
     // when sending TpProcessRequest to the transaction processor.
     TpProcessRequestHeaderStyle request_header_style = 6;
+
+    // Validator can make use of this field to reject the registration requests
+    uint32 protocol_version = 7;
 }
 
 // A response sent from the validator to the transaction processor
@@ -68,7 +71,7 @@ message TpRegisterResponse {
     Status status = 1;
 
     // Respond back with protocol_version, the value that can be used by SDK to
-    // know if validator supports certain expected feature.
+    // know if validator supports expected feature.
     uint32 protocol_version = 2;
 }
 
@@ -95,15 +98,8 @@ message TpUnregisterResponse {
 // The request from the validator/executor of the transaction processor
 // to verify a transaction.
 message TpProcessRequest {
-    // Transaction header can be sent in one of following forms
-    oneof transaction_header {
-        // The de-serialized transaction header from client request
-        TransactionHeader header = 1;
-
-        // The serialized header as received by client.
-        // Controlled by a flag during transaction processor registration.
-        bytes header_bytes = 5;
-    }
+    // The de-serialized transaction header from client request
+    TransactionHeader header = 1;
 
     // The transaction payload
     bytes payload = 2;
@@ -113,6 +109,10 @@ message TpProcessRequest {
 
     // The context_id for state requests.
     string context_id = 4;
+
+    // The serialized header as received by client.
+    // Controlled by a flag during transaction processor registration.
+    bytes header_bytes = 5;
 }
 
 

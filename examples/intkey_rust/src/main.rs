@@ -34,7 +34,7 @@ use log4rs::encode::pattern::PatternEncoder;
 
 use std::process;
 
-use sawtooth_sdk::messages::processor::TpProcessRequestHeaderStyle;
+use sawtooth_sdk::messages::processor::TpRegisterRequest_TpProcessRequestHeaderStyle;
 use sawtooth_sdk::processor::TransactionProcessor;
 
 use handler::IntkeyTransactionHandler;
@@ -95,6 +95,6 @@ fn main() {
 
     processor.add_handler(&handler);
     // Request transaction header bytes in TpProcessRequest
-    processor.set_header_style(TpProcessRequestHeaderStyle::RAW);
+    processor.set_header_style(TpRegisterRequest_TpProcessRequestHeaderStyle::RAW);
     processor.start();
 }
